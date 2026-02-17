@@ -60,21 +60,50 @@ function safeJsonForInlineScript(value: unknown): string {
 }
 
 async function encodeMp4FromJpegFrames(inputPattern: string, fps: number, outputPath: string) {
-  const mod = await import("fluent-ffmpeg");
-  const ffmpegInstallerMod = await import("@ffmpeg-installer/ffmpeg");
+  interface FfmpegCommandLike {
+    input: (p: string) => FfmpegCommandLike;
+    inputOptions: (opts: string[]) => FfmpegCommandLike;
+    outputOptions: (opts: string[]) => FfmpegCommandLike;
+    on(event: "end", handler: () => void): FfmpegCommandLike;
+    on(event: "error", handler: (err: unknown) => void): FfmpegCommandLike;
+    save: (out: string) => void;
+  }
 
-  const ffmpegFactory =
-    (mod as unknown as { default?: unknown }).default ?? (mod as unknown as { default?: unknown });
-  const ffmpeg = ffmpegFactory as unknown as ((...args: unknown[]) => any) & {
+  type FfmpegLike = (() => FfmpegCommandLike) & {
     setFfmpegPath?: (p: string) => void;
   };
 
-  const installer =
-    (ffmpegInstallerMod as unknown as { default?: { path?: string }; path?: string }).default ??
-    (ffmpegInstallerMod as unknown as { path?: string });
-  const ffmpegPath = installer?.path;
-  if (typeof ffmpegPath === "string" && ffmpeg.setFfmpegPath) {
-    ffmpeg.setFfmpegPath(ffmpegPath);
+  const mod = await import("fluent-ffmpeg");
+
+  const ffmpeg =
+    ((mod as unknown as { default?: unknown }).default ?? mod) as unknown as FfmpegLike;
+
+  // Turbopack currently has trouble bundling @ffmpeg-installer/ffmpeg because it uses
+  // dynamic requires. Instead, we try to locate the platform binary under node_modules
+  // at runtime and point fluent-ffmpeg at it. Fallback is relying on `ffmpeg` being on PATH.
+  const envFfmpegPath = process.env.FFMPEG_PATH;
+  if (typeof envFfmpegPath === "string" && envFfmpegPath.length > 0 && ffmpeg.setFfmpegPath) {
+    ffmpeg.setFfmpegPath(envFfmpegPath);
+  } else if (ffmpeg.setFfmpegPath) {
+    const binName = process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg";
+    const installerDir = path.join(process.cwd(), "node_modules", "@ffmpeg-installer");
+    try {
+      const entries = await fs.readdir(installerDir, { withFileTypes: true });
+      for (const ent of entries) {
+        if (!ent.isDirectory()) continue;
+        if (ent.name === "ffmpeg") continue;
+        const candidate = path.join(installerDir, ent.name, binName);
+        try {
+          await fs.access(candidate);
+          ffmpeg.setFfmpegPath(candidate);
+          break;
+        } catch {
+          // try next
+        }
+      }
+    } catch {
+      // ignore; we'll rely on PATH
+    }
   }
 
   await new Promise<void>((resolve, reject) => {
@@ -158,8 +187,8 @@ export async function processRenderJob(
   await fs.mkdir(framesDir, { recursive: true });
   const outputMp4Path = path.join(tmpDir, "output.mp4");
 
-  const puppeteerMod = await import("puppeteer");
-  const puppeteer = (puppeteerMod as unknown as { default?: unknown }).default ?? puppeteerMod;
+  const puppeteerMod = (await import("puppeteer")) as typeof import("puppeteer");
+  const puppeteer = puppeteerMod.default;
 
   const html = `<!doctype html>
 <html>
@@ -198,7 +227,9 @@ export async function processRenderJob(
         const color = typeof el.color === "string" ? el.color : "#ffffff";
         const text = typeof el.text === "string" ? el.text : "";
         ctx.fillStyle = color;
-        ctx.font = `${Math.max(8, Math.round(fontSize))}px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial`;
+        ctx.font =
+          String(Math.max(8, Math.round(fontSize))) +
+          "px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial";
         ctx.textBaseline = "top";
         ctx.fillText(text, x, y);
       }
@@ -226,7 +257,9 @@ export async function processRenderJob(
         if (!text) return;
         const pad = Math.round(canvas.height * 0.06);
         const fontSize = Math.max(14, Math.round(canvas.height * 0.04));
-        ctx.font = `${fontSize}px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial`;
+        ctx.font =
+          String(fontSize) +
+          "px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial";
         ctx.textBaseline = "bottom";
         const metrics = ctx.measureText(text);
         const w = Math.min(canvas.width - pad * 2, Math.ceil(metrics.width) + pad);
@@ -295,9 +328,9 @@ export async function processRenderJob(
   </body>
 </html>`;
 
-  let browser: any | null = null;
+  let browser: import("puppeteer").Browser | null = null;
   try {
-    browser = await (puppeteer as any).launch({
+    browser = await puppeteer.launch({
       headless: true,
       args: ["--no-sandbox", "--disable-setuid-sandbox"],
     });
@@ -324,25 +357,24 @@ export async function processRenderJob(
         quality: 80,
       });
     }
+
+    const inputPattern = path.join(framesDir, "frame-%06d.jpg");
+    await encodeMp4FromJpegFrames(inputPattern, fps, outputMp4Path);
+
+    const stat = await fs.stat(outputMp4Path);
+    const sizeBytes = stat.size;
+
+    const admin = createServiceRoleClient();
+    const mp4 = await fs.readFile(outputMp4Path);
+    const { error: uploadError } = await admin.storage
+      .from("assets")
+      .upload(storageKey, mp4, { contentType: "video/mp4", upsert: true });
+
+    if (uploadError) throw new Error(uploadError.message);
+
+    return { storageKey, format: "mp4", sizeBytes };
   } finally {
     await browser?.close().catch(() => undefined);
+    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => undefined);
   }
-
-  const inputPattern = path.join(framesDir, "frame-%06d.jpg");
-  await encodeMp4FromJpegFrames(inputPattern, fps, outputMp4Path);
-
-  const stat = await fs.stat(outputMp4Path);
-  const sizeBytes = stat.size;
-
-  const admin = createServiceRoleClient();
-  const mp4 = await fs.readFile(outputMp4Path);
-  const { error: uploadError } = await admin.storage
-    .from("assets")
-    .upload(storageKey, mp4, { contentType: "video/mp4", upsert: true });
-
-  if (uploadError) throw new Error(uploadError.message);
-
-  await fs.rm(tmpDir, { recursive: true, force: true });
-
-  return { storageKey, format: "mp4", sizeBytes };
 }
