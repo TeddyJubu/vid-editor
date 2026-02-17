@@ -5,6 +5,8 @@ import path from "node:path";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
+import type { BrowserManager } from "agent-browser/dist/browser.js";
+
 function clampInt(v: unknown, min: number, max: number): number {
   const n = Number(v);
   if (!Number.isFinite(n)) return min;
@@ -154,7 +156,7 @@ export type StubRenderResult = {
 
 /**
  * Server-side render worker.
- * Renders frames in headless Chromium (Puppeteer) and encodes to MP4 via FFmpeg.
+ * Renders frames in headless Chromium (agent-browser / Playwright) and encodes to MP4 via FFmpeg.
  */
 export async function processRenderJob(
   jobId: string,
@@ -186,9 +188,6 @@ export async function processRenderJob(
   const framesDir = path.join(tmpDir, "frames");
   await fs.mkdir(framesDir, { recursive: true });
   const outputMp4Path = path.join(tmpDir, "output.mp4");
-
-  const puppeteerMod = (await import("puppeteer")) as typeof import("puppeteer");
-  const puppeteer = puppeteerMod.default;
 
   const html = `<!doctype html>
 <html>
@@ -328,14 +327,27 @@ export async function processRenderJob(
   </body>
 </html>`;
 
-  let browser: import("puppeteer").Browser | null = null;
+  let browser: BrowserManager | null = null;
   try {
-    browser = await puppeteer.launch({
+    const mod = await import("agent-browser/dist/browser.js");
+    const Manager = mod.BrowserManager as unknown as {
+      new (): BrowserManager;
+    };
+
+    browser = new Manager();
+    await browser.launch({
+      id: `render-${jobId}-launch`,
+      action: "launch",
       headless: true,
+      browser: "chromium",
       args: ["--no-sandbox", "--disable-setuid-sandbox"],
+      viewport: { width, height },
     });
-    const page = await browser.newPage();
-    await page.setViewport({ width, height, deviceScaleFactor: 1 });
+
+    await browser.ensurePage();
+    await browser.setViewport(width, height);
+
+    const page = browser.getPage();
     await page.setContent(html, { waitUntil: "load" });
     await page.evaluate(async () => {
       const w = window as unknown as { __prepareAssets?: () => Promise<void> };

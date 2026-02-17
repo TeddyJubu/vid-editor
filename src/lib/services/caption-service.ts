@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
 
 import { createClient } from "@/lib/supabase/server";
 
@@ -13,14 +13,15 @@ type ProjectJsonRow = { project_json: unknown };
 
 const jobs = new Map<string, CaptionJob>();
 
-function getGeminiModel() {
+const GEMINI_MODEL = "gemini-3-flash-preview";
+
+function getGeminiClient() {
   const apiKey = process.env.GOOGLE_GEMINI_API_KEY;
   if (!apiKey) return null;
-  const genAI = new GoogleGenerativeAI(apiKey);
-  return genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+  return new GoogleGenAI({ apiKey });
 }
 
-type GeminiModel = NonNullable<ReturnType<typeof getGeminiModel>>;
+type GeminiModel = NonNullable<ReturnType<typeof getGeminiClient>>;
 
 function nowIso() {
   return new Date().toISOString();
@@ -226,7 +227,7 @@ function validateAndNormalizeSegments(
 }
 
 async function generateCaptionsWithGemini(
-  model: GeminiModel,
+  ai: GeminiModel,
   projectJson: unknown,
   durationMs: number,
   style: CaptionStyle,
@@ -253,8 +254,11 @@ async function generateCaptionsWithGemini(
     "Project context JSON: " +
     JSON.stringify({ style, ...context });
 
-  const res = await model.generateContent(prompt);
-  const text = res?.response?.text?.();
+  const response = await ai.models.generateContent({
+    model: GEMINI_MODEL,
+    contents: prompt,
+  });
+  const text = response.text;
   if (!text) throw new Error("Gemini returned empty response");
 
   const json = extractLikelyJsonArray(text);
@@ -273,13 +277,13 @@ async function generateCaptions(
   durationMs: number,
   style: CaptionStyle,
 ): Promise<CaptionSegment[]> {
-  const model = getGeminiModel();
-  if (!model) {
+  const ai = getGeminiClient();
+  if (!ai) {
     console.warn("[captions] GOOGLE_GEMINI_API_KEY not set – using mock captions");
     return generateMockCaptions(durationMs, style);
   }
   try {
-    return await generateCaptionsWithGemini(model, projectJson, durationMs, style);
+    return await generateCaptionsWithGemini(ai, projectJson, durationMs, style);
   } catch (err) {
     console.warn(
       "[captions] Gemini API failed, falling back to mock:",
