@@ -1,0 +1,13 @@
+/*
+  Twick Studio global CSS placeholder.
+
+  When real @twick/* packages are installed, import Twick's stylesheet(s) here.
+  This file is imported BEFORE globals.css (see src/app/layout.tsx) so Twick
+  styles load first.
+*/
+
+/* Containment helpers to reduce style bleed between Twick and the app. */
+.twick-studio-scope {
+  isolation: isolate;
+}
+
