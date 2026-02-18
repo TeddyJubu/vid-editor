@@ -16,6 +16,34 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+## Dev-only: `DEV_NO_AUTH` (projects API without Supabase auth)
+
+For local development, you can exercise the **Projects CRUD + Versions** API without signing in / cookies.
+
+### Enable
+
+Set the following in `.env.local` (do **not** commit secrets):
+
+- `DEV_NO_AUTH=true`
+- `NEXT_PUBLIC_SUPABASE_URL=...`
+- `SUPABASE_SERVICE_ROLE_KEY=...`
+
+Optional:
+- `DEV_WORKSPACE_ID=...` (if omitted, a "Dev Workspace" record is auto-created/selected)
+
+Notes:
+- This is **development-only**: it is gated by `NODE_ENV === "development"`.
+- With `next dev`, `NODE_ENV` is already `development`.
+
+### Example curl (no cookies)
+
+```bash
+BASE=http://localhost:3000
+curl -sS -X POST "$BASE/api/projects" -H 'content-type: application/json' \
+  -d '{"title":"Test Project","formatPresetId":"landscape_16_9"}'
+curl -sS "$BASE/api/projects"
+```
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
