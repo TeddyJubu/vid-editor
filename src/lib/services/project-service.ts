@@ -1,10 +1,16 @@
 import type { Json, Database } from "@/types/database";
+import { isDevNoAuthMode } from "@/lib/dev/no-auth";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { getFormatPresetById, type FormatPresetId } from "@/lib/presets";
 import type { ProjectJSON } from "@/lib/twick/types";
 
 type ProjectRow = Database["public"]["Tables"]["projects"]["Row"];
 type ProjectVersionRow = Database["public"]["Tables"]["project_versions"]["Row"];
+
+async function createDbClient() {
+  return isDevNoAuthMode() ? createServiceRoleClient() : await createClient();
+}
 
 export type ProjectWithLatestVersion = {
   project: ProjectRow;
@@ -51,7 +57,7 @@ async function getProjectRow(
   projectId: string,
   workspaceId: string,
 ): Promise<ProjectRow | null> {
-  const supabase = await createClient();
+  const supabase = await createDbClient();
   const { data, error } = await supabase
     .from("projects")
     .select()
@@ -65,7 +71,7 @@ async function getProjectRow(
 }
 
 async function getProjectVersionRow(versionId: string): Promise<ProjectVersionRow | null> {
-  const supabase = await createClient();
+  const supabase = await createDbClient();
   const { data, error } = await supabase
     .from("project_versions")
     .select()
@@ -83,7 +89,7 @@ export async function createProject(
   _userId: string,
 ): Promise<ProjectWithLatestVersion> {
   void _userId;
-  const supabase = await createClient();
+  const supabase = await createDbClient();
 
   const { data: projectData, error: projectError } = await supabase
     .from("projects")
@@ -140,7 +146,7 @@ export async function listProjects(
   workspaceId: string,
   options: ListProjectsOptions = {},
 ): Promise<{ projects: ProjectRow[]; count: number | null }> {
-  const supabase = await createClient();
+  const supabase = await createDbClient();
   const limit = Math.min(Math.max(options.limit ?? 50, 1), 100);
   const offset = Math.max(options.offset ?? 0, 0);
 
@@ -171,7 +177,7 @@ export async function updateProject(
     formatPresetId?: FormatPresetId;
   },
 ): Promise<ProjectRow | null> {
-  const supabase = await createClient();
+  const supabase = await createDbClient();
 
   const payload: Database["public"]["Tables"]["projects"]["Update"] = {};
   if (typeof updates.title === "string") payload.title = updates.title;
@@ -195,7 +201,7 @@ export async function deleteProject(
   projectId: string,
   workspaceId: string,
 ): Promise<boolean> {
-  const supabase = await createClient();
+  const supabase = await createDbClient();
   const { data, error } = await supabase
     .from("projects")
     .update({ deleted_at: new Date().toISOString() })
@@ -217,7 +223,7 @@ export async function duplicateProject(
   const original = await getProject(projectId, workspaceId);
   if (!original) return null;
 
-  const supabase = await createClient();
+  const supabase = await createDbClient();
   const copyTitle = `${original.project.title} (Copy)`;
 
   const { data: projectData, error: projectError } = await supabase
@@ -272,7 +278,7 @@ export async function saveProjectVersion(
   const existing = await getProjectRow(projectId, workspaceId);
   if (!existing) return null;
 
-  const supabase = await createClient();
+  const supabase = await createDbClient();
   const { data: versionData, error: versionError } = await supabase
     .from("project_versions")
     .insert({
@@ -307,7 +313,7 @@ export async function listProjectVersions(
   const existing = await getProjectRow(projectId, workspaceId);
   if (!existing) return null;
 
-  const supabase = await createClient();
+  const supabase = await createDbClient();
   const { data, error } = await supabase
     .from("project_versions")
     .select("*")

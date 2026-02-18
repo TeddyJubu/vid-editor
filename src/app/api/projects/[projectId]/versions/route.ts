@@ -1,8 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 
+import { isDevNoAuthMode } from "@/lib/dev/no-auth";
 import { createClient } from "@/lib/supabase/server";
-import { getFirstWorkspaceIdForUser } from "@/lib/services/workspace-service";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import {
+  getFirstWorkspaceIdForUser,
+  getOrCreateDevWorkspaceId,
+} from "@/lib/services/workspace-service";
 import {
   listProjectVersions,
   saveProjectVersion,
@@ -22,14 +27,24 @@ export async function GET(
   ctx: { params: Promise<{ projectId: string }> },
 ) {
   const { projectId } = await ctx.params;
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
 
-  if (!user) return jsonError("Unauthorized", 401);
-  const workspaceId = await getFirstWorkspaceIdForUser(supabase, user.id);
-  if (!workspaceId) return jsonError("Forbidden", 403);
+  const devNoAuth = isDevNoAuthMode();
+  const supabase = devNoAuth ? createServiceRoleClient() : await createClient();
+
+  let workspaceId: string;
+  if (devNoAuth) {
+    workspaceId = await getOrCreateDevWorkspaceId(supabase);
+  } else {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) return jsonError("Unauthorized", 401);
+
+    const ws = await getFirstWorkspaceIdForUser(supabase, user.id);
+    if (!ws) return jsonError("Forbidden", 403);
+    workspaceId = ws;
+  }
 
   const versions = await listProjectVersions(projectId, workspaceId);
   if (!versions) return jsonError("Not Found", 404);
@@ -41,14 +56,24 @@ export async function POST(
   ctx: { params: Promise<{ projectId: string }> },
 ) {
   const { projectId } = await ctx.params;
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
 
-  if (!user) return jsonError("Unauthorized", 401);
-  const workspaceId = await getFirstWorkspaceIdForUser(supabase, user.id);
-  if (!workspaceId) return jsonError("Forbidden", 403);
+  const devNoAuth = isDevNoAuthMode();
+  const supabase = devNoAuth ? createServiceRoleClient() : await createClient();
+
+  let workspaceId: string;
+  if (devNoAuth) {
+    workspaceId = await getOrCreateDevWorkspaceId(supabase);
+  } else {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) return jsonError("Unauthorized", 401);
+
+    const ws = await getFirstWorkspaceIdForUser(supabase, user.id);
+    if (!ws) return jsonError("Forbidden", 403);
+    workspaceId = ws;
+  }
 
   try {
     const body = saveVersionSchema.parse(await request.json());

@@ -1,8 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 
+import { isDevNoAuthMode } from "@/lib/dev/no-auth";
 import { createClient } from "@/lib/supabase/server";
-import { getFirstWorkspaceIdForUser } from "@/lib/services/workspace-service";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import {
+  getFirstWorkspaceIdForUser,
+  getOrCreateDevWorkspaceId,
+} from "@/lib/services/workspace-service";
 import { createProjectSchema } from "@/lib/validators/project-schemas";
 import { createProject, listProjects } from "@/lib/services/project-service";
 
@@ -15,15 +20,23 @@ function jsonData<T>(data: T, status = 200) {
 }
 
 export async function GET(request: NextRequest) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const devNoAuth = isDevNoAuthMode();
+  const supabase = devNoAuth ? createServiceRoleClient() : await createClient();
 
-  if (!user) return jsonError("Unauthorized", 401);
+  let workspaceId: string;
+  if (devNoAuth) {
+    workspaceId = await getOrCreateDevWorkspaceId(supabase);
+  } else {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
-  const workspaceId = await getFirstWorkspaceIdForUser(supabase, user.id);
-  if (!workspaceId) return jsonError("Forbidden", 403);
+    if (!user) return jsonError("Unauthorized", 401);
+
+    const ws = await getFirstWorkspaceIdForUser(supabase, user.id);
+    if (!ws) return jsonError("Forbidden", 403);
+    workspaceId = ws;
+  }
 
   const limit = Number(request.nextUrl.searchParams.get("limit") ?? "50");
   const offset = Number(request.nextUrl.searchParams.get("offset") ?? "0");
@@ -39,15 +52,26 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const devNoAuth = isDevNoAuthMode();
+  const supabase = devNoAuth ? createServiceRoleClient() : await createClient();
 
-  if (!user) return jsonError("Unauthorized", 401);
+  let workspaceId: string;
+  let userId: string;
+  if (devNoAuth) {
+    workspaceId = await getOrCreateDevWorkspaceId(supabase);
+    userId = "dev-no-auth";
+  } else {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
-  const workspaceId = await getFirstWorkspaceIdForUser(supabase, user.id);
-  if (!workspaceId) return jsonError("Forbidden", 403);
+    if (!user) return jsonError("Unauthorized", 401);
+    userId = user.id;
+
+    const ws = await getFirstWorkspaceIdForUser(supabase, user.id);
+    if (!ws) return jsonError("Forbidden", 403);
+    workspaceId = ws;
+  }
 
   try {
     const body = createProjectSchema.parse(await request.json());
@@ -55,7 +79,7 @@ export async function POST(request: NextRequest) {
       workspaceId,
       body.title,
       body.formatPresetId,
-      user.id,
+      userId,
     );
     return jsonData(result, 201);
   } catch (err) {
