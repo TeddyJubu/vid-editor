@@ -97,13 +97,13 @@ function pickWordsStream(): string[] {
     .filter(Boolean);
 }
 
-function stripCodeFences(text: string): string {
+export function stripCodeFences(text: string): string {
   const trimmed = text.trim();
   const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
   return (fenced?.[1] ?? trimmed).trim();
 }
 
-function extractLikelyJsonArray(text: string): string {
+export function extractLikelyJsonArray(text: string): string {
   const t = stripCodeFences(text);
   const start = t.indexOf("[");
   const end = t.lastIndexOf("]");
@@ -113,7 +113,7 @@ function extractLikelyJsonArray(text: string): string {
   return t.slice(start, end + 1);
 }
 
-function buildProjectContext(projectJson: unknown, durationMs: number) {
+export function buildProjectContext(projectJson: unknown, durationMs: number) {
   const ctx: {
     title?: string;
     durationMs: number;
@@ -153,13 +153,13 @@ function buildProjectContext(projectJson: unknown, durationMs: number) {
   return ctx;
 }
 
-function toIntMs(v: unknown): number | null {
+export function toIntMs(v: unknown): number | null {
   const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
   if (!Number.isFinite(n)) return null;
   return Math.trunc(n);
 }
 
-function validateAndNormalizeSegments(
+export function validateAndNormalizeSegments(
   parsed: unknown,
   durationMs: number,
   style: CaptionStyle,

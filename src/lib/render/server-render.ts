@@ -7,13 +7,13 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 import type { BrowserManager } from "agent-browser/dist/browser.js";
 
-function clampInt(v: unknown, min: number, max: number): number {
+export function clampInt(v: unknown, min: number, max: number): number {
   const n = Number(v);
   if (!Number.isFinite(n)) return min;
   return Math.min(Math.max(Math.trunc(n), min), max);
 }
 
-function extractDurationSeconds(projectJson: unknown): number {
+export function extractDurationSeconds(projectJson: unknown): number {
   if (!projectJson || typeof projectJson !== "object") return 10;
   const obj = projectJson as Record<string, unknown>;
   const elements = obj.elements;
@@ -31,7 +31,7 @@ function extractDurationSeconds(projectJson: unknown): number {
   return Number.isFinite(seconds) && seconds > 0 ? seconds : 10;
 }
 
-function extractFormat(projectJson: unknown): { width: number; height: number; fps: number } {
+export function extractFormat(projectJson: unknown): { width: number; height: number; fps: number } {
   if (!projectJson || typeof projectJson !== "object") {
     return { width: 1920, height: 1080, fps: 30 };
   }
@@ -51,7 +51,7 @@ function extractFormat(projectJson: unknown): { width: number; height: number; f
   };
 }
 
-function ensureEven(n: number): number {
+export function ensureEven(n: number): number {
   const v = Math.max(0, Math.trunc(n));
   return v % 2 === 0 ? v : v - 1;
 }
