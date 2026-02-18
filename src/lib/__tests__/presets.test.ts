@@ -32,7 +32,8 @@ describe("presets", () => {
   });
 
   it("getFormatPresetById returns undefined for unknown IDs at runtime", () => {
-    expect(getFormatPresetById("nope" as any)).toBeUndefined();
+	  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+	  expect(getFormatPresetById("nope" as any)).toBeUndefined();
   });
 
   it("contains a 'custom' preset with null width/height/fps", () => {
